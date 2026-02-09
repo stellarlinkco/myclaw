@@ -184,43 +184,6 @@ func (c *defaultWeComClient) sendTextOnce(ctx context.Context, responseURL, cont
 	return nil
 }
 
-func splitUTF8ByByteLimit(text string, maxBytes int) []string {
-	if maxBytes <= 0 {
-		return []string{text}
-	}
-	if len([]byte(text)) <= maxBytes {
-		return []string{text}
-	}
-
-	runes := []rune(text)
-	chunks := make([]string, 0, len(runes)/2+1)
-	start := 0
-	for start < len(runes) {
-		bytesCount := 0
-		end := start
-		for end < len(runes) {
-			runeBytes := utf8.RuneLen(runes[end])
-			if runeBytes < 0 {
-				runeBytes = 1
-			}
-			if bytesCount+runeBytes > maxBytes {
-				break
-			}
-			bytesCount += runeBytes
-			end++
-		}
-
-		if end == start {
-			end = start + 1
-		}
-
-		chunks = append(chunks, string(runes[start:end]))
-		start = end
-	}
-
-	return chunks
-}
-
 func truncateUTF8ByByteLimit(text string, maxBytes int) string {
 	if maxBytes <= 0 || len([]byte(text)) <= maxBytes {
 		return text
@@ -476,15 +439,24 @@ func (w *WeComChannel) Send(msg bus.OutboundMessage) error {
 }
 
 type weComEncryptedEnvelope struct {
-	Encrypt       string `json:"encrypt"`
-	EncryptLegacy string `json:"Encrypt"`
+	Encrypt string `json:"-"`
+}
+
+func (e *weComEncryptedEnvelope) UnmarshalJSON(data []byte) error {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	for _, key := range []string{"encrypt", "Encrypt"} {
+		if v, ok := raw[key]; ok {
+			return json.Unmarshal(v, &e.Encrypt)
+		}
+	}
+	return nil
 }
 
 func (e weComEncryptedEnvelope) CipherText() string {
-	if strings.TrimSpace(e.Encrypt) != "" {
-		return strings.TrimSpace(e.Encrypt)
-	}
-	return strings.TrimSpace(e.EncryptLegacy)
+	return strings.TrimSpace(e.Encrypt)
 }
 
 type weComFrom struct {
@@ -573,6 +545,7 @@ func (w *WeComChannel) verifyCallbackURL(resp http.ResponseWriter, req *http.Req
 }
 
 func (w *WeComChannel) handleIncomingMessage(resp http.ResponseWriter, req *http.Request, sig, timestamp, nonce string) {
+	req.Body = http.MaxBytesReader(resp, req.Body, 1<<20) // 1MB limit
 	body, err := io.ReadAll(req.Body)
 	if err != nil {
 		http.Error(resp, "read body failed", http.StatusBadRequest)
