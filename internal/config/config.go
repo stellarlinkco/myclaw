@@ -43,6 +43,7 @@ type ProviderConfig struct {
 type ChannelsConfig struct {
 	Telegram TelegramConfig `json:"telegram"`
 	Feishu   FeishuConfig   `json:"feishu"`
+	WeCom    WeComConfig    `json:"wecom"`
 }
 
 type TelegramConfig struct {
@@ -60,6 +61,15 @@ type FeishuConfig struct {
 	EncryptKey        string   `json:"encryptKey,omitempty"`
 	Port              int      `json:"port,omitempty"`
 	AllowFrom         []string `json:"allowFrom"`
+}
+
+type WeComConfig struct {
+	Enabled        bool     `json:"enabled"`
+	Token          string   `json:"token"`
+	EncodingAESKey string   `json:"encodingAESKey"`
+	ReceiveID      string   `json:"receiveId,omitempty"`
+	Port           int      `json:"port,omitempty"`
+	AllowFrom      []string `json:"allowFrom"`
 }
 
 type ToolsConfig struct {
@@ -149,6 +159,15 @@ func LoadConfig() (*Config, error) {
 	}
 	if appSecret := os.Getenv("MYCLAW_FEISHU_APP_SECRET"); appSecret != "" {
 		cfg.Channels.Feishu.AppSecret = appSecret
+	}
+	if token := os.Getenv("MYCLAW_WECOM_TOKEN"); token != "" {
+		cfg.Channels.WeCom.Token = token
+	}
+	if aesKey := os.Getenv("MYCLAW_WECOM_ENCODING_AES_KEY"); aesKey != "" {
+		cfg.Channels.WeCom.EncodingAESKey = aesKey
+	}
+	if receiveID := os.Getenv("MYCLAW_WECOM_RECEIVE_ID"); receiveID != "" {
+		cfg.Channels.WeCom.ReceiveID = receiveID
 	}
 
 	if cfg.Agent.Workspace == "" {

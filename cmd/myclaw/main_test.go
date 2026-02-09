@@ -10,9 +10,9 @@ import (
 	"testing"
 
 	"github.com/cexll/agentsdk-go/pkg/api"
+	"github.com/spf13/cobra"
 	"github.com/stellarlinkco/myclaw/internal/config"
 	"github.com/stellarlinkco/myclaw/internal/memory"
-	"github.com/spf13/cobra"
 )
 
 func TestWriteIfNotExists_NewFile(t *testing.T) {
@@ -246,6 +246,15 @@ func TestRunStatus(t *testing.T) {
 	}
 	if !strings.Contains(output, "API Key: not set") {
 		t.Errorf("missing API Key info in output: %s", output)
+	}
+	if !strings.Contains(output, "Telegram: enabled=") {
+		t.Errorf("missing Telegram status in output: %s", output)
+	}
+	if !strings.Contains(output, "Feishu: enabled=") {
+		t.Errorf("missing Feishu status in output: %s", output)
+	}
+	if !strings.Contains(output, "WeCom: enabled=") {
+		t.Errorf("missing WeCom status in output: %s", output)
 	}
 }
 

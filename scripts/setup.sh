@@ -57,10 +57,29 @@ else
     TG_TOKEN=""
 fi
 
+# WeCom Bot
+echo ""
+echo "--- WeCom Bot Channel ---"
+read -rp "Enable WeCom bot? [y/N]: " WECOM_ENABLED
+if [[ "$WECOM_ENABLED" =~ ^[Yy]$ ]]; then
+    WECOM_ENABLED="true"
+    read -rp "Token: " WECOM_TOKEN
+    read -rp "EncodingAESKey (43 chars): " WECOM_AES_KEY
+    read -rp "ReceiveID (optional, leave empty to skip strict check): " WECOM_RECEIVE_ID
+    read -rp "Callback port (default: 9886): " WECOM_PORT
+    WECOM_PORT="${WECOM_PORT:-9886}"
+else
+    WECOM_ENABLED="false"
+    WECOM_TOKEN=""
+    WECOM_AES_KEY=""
+    WECOM_RECEIVE_ID=""
+    WECOM_PORT="9886"
+fi
+
 # Write config
 mkdir -p "$CONFIG_DIR"
 
-cat > "$CONFIG_FILE" <<EOF
+cat > "$CONFIG_FILE" <<EOF_JSON
 {
   "agent": {
     "workspace": "${HOME}/.myclaw/workspace",
@@ -89,6 +108,14 @@ cat > "$CONFIG_FILE" <<EOF
       "encryptKey": "",
       "port": ${FEISHU_PORT},
       "allowFrom": []
+    },
+    "wecom": {
+      "enabled": ${WECOM_ENABLED},
+      "token": "${WECOM_TOKEN}",
+      "encodingAESKey": "${WECOM_AES_KEY}",
+      "receiveId": "${WECOM_RECEIVE_ID}",
+      "port": ${WECOM_PORT},
+      "allowFrom": []
     }
   },
   "tools": {
@@ -101,7 +128,7 @@ cat > "$CONFIG_FILE" <<EOF
     "port": 18790
   }
 }
-EOF
+EOF_JSON
 
 chmod 600 "$CONFIG_FILE"
 
@@ -113,6 +140,9 @@ echo "  make onboard    # Initialize workspace"
 echo "  make gateway    # Start gateway"
 if [ "$FEISHU_ENABLED" = "true" ]; then
     echo "  make tunnel     # Start cloudflared tunnel for Feishu webhook"
+fi
+if [ "$WECOM_ENABLED" = "true" ]; then
+    echo "  Configure callback URL to /wecom/bot"
 fi
 echo ""
 echo "Done."

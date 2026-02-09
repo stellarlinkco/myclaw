@@ -280,3 +280,29 @@ func TestLoadConfig_MYCLAWBaseURL(t *testing.T) {
 		t.Errorf("baseURL = %q, want http://myclaw.local", cfg.Provider.BaseURL)
 	}
 }
+
+func TestLoadConfig_WeComEnvOverrides(t *testing.T) {
+	tmpDir := t.TempDir()
+	origHome := os.Getenv("HOME")
+	t.Setenv("HOME", tmpDir)
+	defer os.Setenv("HOME", origHome)
+
+	t.Setenv("MYCLAW_WECOM_TOKEN", "wecom-token")
+	t.Setenv("MYCLAW_WECOM_ENCODING_AES_KEY", "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG")
+	t.Setenv("MYCLAW_WECOM_RECEIVE_ID", "wecom-receive-id")
+
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("LoadConfig error: %v", err)
+	}
+
+	if cfg.Channels.WeCom.Token != "wecom-token" {
+		t.Errorf("wecom token = %q, want wecom-token", cfg.Channels.WeCom.Token)
+	}
+	if cfg.Channels.WeCom.EncodingAESKey != "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG" {
+		t.Errorf("wecom aes key = %q, want configured value", cfg.Channels.WeCom.EncodingAESKey)
+	}
+	if cfg.Channels.WeCom.ReceiveID != "wecom-receive-id" {
+		t.Errorf("wecom receiveId = %q, want wecom-receive-id", cfg.Channels.WeCom.ReceiveID)
+	}
+}

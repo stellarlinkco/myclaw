@@ -5,6 +5,7 @@ services:
     ports:
       - "18790:18790"
       - "9876:9876"
+      - "9886:9886"
     volumes:
       - myclaw-data:/root/.myclaw
     environment:
@@ -12,6 +13,11 @@ services:
       - MYCLAW_TELEGRAM_TOKEN=${MYCLAW_TELEGRAM_TOKEN:-}
       - MYCLAW_FEISHU_APP_ID=${MYCLAW_FEISHU_APP_ID:-}
       - MYCLAW_FEISHU_APP_SECRET=${MYCLAW_FEISHU_APP_SECRET:-}
+      - MYCLAW_WECOM_CORP_ID=${MYCLAW_WECOM_CORP_ID:-}
+      - MYCLAW_WECOM_AGENT_ID=${MYCLAW_WECOM_AGENT_ID:-}
+      - MYCLAW_WECOM_SECRET=${MYCLAW_WECOM_SECRET:-}
+      - MYCLAW_WECOM_TOKEN=${MYCLAW_WECOM_TOKEN:-}
+      - MYCLAW_WECOM_ENCODING_AES_KEY=${MYCLAW_WECOM_ENCODING_AES_KEY:-}
 
   # Optional: expose webhook via cloudflared tunnel
   tunnel:

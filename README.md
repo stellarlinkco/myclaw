@@ -8,6 +8,7 @@ Personal AI assistant built on [agentsdk-go](https://github.com/cexll/agentsdk-g
 - **Gateway** - Full orchestration: channels + cron + heartbeat
 - **Telegram Channel** - Receive and send messages via Telegram bot
 - **Feishu Channel** - Receive and send messages via Feishu (Lark) bot
+- **WeCom Channel** - Receive inbound messages and send markdown replies via WeCom intelligent bot API mode
 - **Multi-Provider** - Support for Anthropic and OpenAI models
 - **Cron Jobs** - Scheduled tasks with JSON persistence
 - **Heartbeat** - Periodic tasks from HEARTBEAT.md
@@ -95,13 +96,13 @@ make gateway
                   └───────────────────────────────────────┘
 
 Data Flow (Gateway Mode):
-  Telegram/Feishu ──► Channel ──► Bus.Inbound ──► processLoop
+  Telegram/Feishu/WeCom ──► Channel ──► Bus.Inbound ──► processLoop
                                                        │
                                                        ▼
                                                 Runtime.Run()
                                                        │
                                                        ▼
-                                        Bus.Outbound ──► Channel ──► Telegram/Feishu
+                                        Bus.Outbound ──► Channel ──► Telegram/Feishu/WeCom
 ```
 
 ## Project Structure
@@ -110,7 +111,7 @@ Data Flow (Gateway Mode):
 cmd/myclaw/          CLI entry point (agent, gateway, onboard, status)
 internal/
   bus/               Message bus (inbound/outbound channels)
-  channel/           Channel interface + Telegram + Feishu implementations
+  channel/           Channel interface + Telegram + Feishu + WeCom implementations
   config/            Configuration loading (JSON + env vars)
   cron/              Cron job scheduling with JSON persistence
   gateway/           Gateway orchestration (bus + runtime + channels)
@@ -119,6 +120,7 @@ internal/
 docs/
   telegram-setup.md  Telegram bot setup guide
   feishu-setup.md    Feishu bot setup guide
+  wecom-setup.md     WeCom intelligent bot setup guide
 scripts/
   setup.sh           Interactive config generator
 workspace/
@@ -153,6 +155,14 @@ Run `make setup` for interactive config, or copy `config.example.json` to `~/.my
       "verificationToken": "your-verification-token",
       "port": 9876,
       "allowFrom": []
+    },
+    "wecom": {
+      "enabled": true,
+      "token": "your-token",
+      "encodingAESKey": "your-43-char-encoding-aes-key",
+      "receiveId": "",
+      "port": 9886,
+      "allowFrom": ["zhangsan"]
     }
   }
 }
@@ -178,6 +188,9 @@ When using OpenAI, set the model to an OpenAI model name (e.g., `gpt-4o`).
 | `MYCLAW_TELEGRAM_TOKEN` | Telegram bot token |
 | `MYCLAW_FEISHU_APP_ID` | Feishu app ID |
 | `MYCLAW_FEISHU_APP_SECRET` | Feishu app secret |
+| `MYCLAW_WECOM_TOKEN` | WeCom intelligent bot callback token |
+| `MYCLAW_WECOM_ENCODING_AES_KEY` | WeCom intelligent bot callback EncodingAESKey |
+| `MYCLAW_WECOM_RECEIVE_ID` | Optional receive ID for strict decrypt validation |
 
 > Prefer environment variables over config files for sensitive values like API keys.
 
@@ -205,6 +218,23 @@ Quick steps:
 6. Set `appId`, `appSecret`, `verificationToken` in config
 7. Run `make gateway` and `make tunnel` (for public webhook URL)
 
+### WeCom
+
+See [docs/wecom-setup.md](docs/wecom-setup.md) for detailed setup guide.
+
+Quick steps:
+1. Create a WeCom intelligent bot in API mode and get `token`, `encodingAESKey`
+2. Configure callback URL: `https://your-domain/wecom/bot`
+3. Set `token` and `encodingAESKey` in both WeCom console and myclaw config
+4. Optionally set `receiveId` if you need strict decrypt receive-id validation
+5. Optional: set `allowFrom` to your user ID(s) as whitelist (if unset/empty, inbound from all users is allowed)
+6. Run `make gateway`
+
+WeCom notes:
+- Outbound uses `response_url` and sends `markdown` payloads
+- `response_url` is short-lived (often single-use); delayed or repeated replies may fail
+- Outbound markdown content over 20480 bytes is truncated
+
 ## Docker Deployment
 
 ### Build and Run
@@ -217,6 +247,7 @@ docker run -d \
   -e MYCLAW_TELEGRAM_TOKEN=your-token \
   -p 18790:18790 \
   -p 9876:9876 \
+  -p 9886:9886 \
   -v myclaw-data:/root/.myclaw \
   myclaw
 ```
