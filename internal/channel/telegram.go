@@ -475,13 +475,26 @@ func (t *TelegramChannel) saveFile(fileID, name string) (string, error) {
 		return "", fmt.Errorf("create uploads dir: %w", err)
 	}
 	// Use timestamp prefix to avoid collisions.
-	name = fmt.Sprintf("%d_%s", time.Now().UnixMilli(), name)
+	name = fmt.Sprintf("%d_%s", time.Now().UnixMilli(), sanitizeUploadName(name, "file"))
 	path := filepath.Join(dir, name)
 	if err := os.WriteFile(path, data, 0o644); err != nil {
 		return "", fmt.Errorf("write file: %w", err)
 	}
 	log.Printf("[telegram] saved file to %s (%d bytes)", path, len(data))
 	return path, nil
+}
+
+func sanitizeUploadName(name, fallback string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		name = fallback
+	}
+	name = strings.ReplaceAll(name, "\\", "/")
+	name = filepath.Base(name)
+	if name == "" || name == "." || name == string(filepath.Separator) {
+		return fallback
+	}
+	return name
 }
 
 func (t *TelegramChannel) downloadFileData(fileID string) ([]byte, error) {
@@ -540,7 +553,7 @@ func (t *TelegramChannel) PreProcessFeedback(chatID int64, messageID int) {
 
 // sendReaction sends an emoji reaction to a message.
 func (t *TelegramChannel) sendReaction(chatID int64, messageID int, emoji string) {
-	if t.bot == nil {
+	if t.bot == nil || messageID <= 0 {
 		return
 	}
 	err := t.bot.SetMessageReaction(context.Background(), &telego.SetMessageReactionParams{
@@ -859,7 +872,11 @@ func (t *TelegramChannel) SendStream(ctx context.Context, chatID string, metadat
 		}
 	}
 
-	// Remove intermediate status/content messages before sending final report.
+	if err := t.Send(bus.OutboundMessage{ChatID: chatID, Content: finalText, Metadata: metadata}); err != nil {
+		return err
+	}
+
+	// Remove intermediate status/content messages only after the final report is visible.
 	if statusMsg.id != 0 {
 		if err := t.deleteMessage(numChatID, statusMsg.id); err != nil {
 			log.Printf("[telegram] delete status message failed: %v", err)
@@ -871,7 +888,7 @@ func (t *TelegramChannel) SendStream(ctx context.Context, chatID string, metadat
 		}
 	}
 
-	return t.Send(bus.OutboundMessage{ChatID: chatID, Content: finalText, Metadata: metadata})
+	return nil
 }
 
 // loadSlashCommands loads slash commands from <telegramRoot>/slashes/*.md.
@@ -1003,6 +1020,7 @@ func (t *TelegramChannel) handleSlashCommand(msg *telego.Message) {
 			"slash_command": cmdName,
 			"slash_type":    string(cmd.Type),
 			"args":          args,
+			"message_id":    msg.MessageID,
 		}
 		if cmd.Session == telegram.SessionModeIsolated {
 			metadata["session_mode"] = string(cmd.Session)
@@ -1035,6 +1053,7 @@ func (t *TelegramChannel) handleBuiltinSlashCommand(msg *telego.Message, cmdName
 		Metadata: map[string]interface{}{
 			"builtin_command":     "new",
 			"force_non_streaming": true,
+			"message_id":          msg.MessageID,
 		},
 	}
 	return true

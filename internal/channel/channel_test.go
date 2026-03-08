@@ -5,11 +5,14 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -27,9 +30,11 @@ const fakeToken = "1234567890:ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcdefgh"
 
 // mockCaller implements ta.Caller for testing telego bot methods.
 type mockCaller struct {
-	responses map[string]*ta.Response // method name -> response
-	calls     []mockCall
-	callErr   error
+	responses       map[string]*ta.Response // method name -> response
+	calls           []mockCall
+	callErr         error
+	methodErrSeq    map[string][]error
+	methodCallCount map[string]int
 }
 
 type mockCall struct {
@@ -49,6 +54,7 @@ func newMockCaller() *mockCaller {
 			"getFile":            {Ok: true, Result: []byte(`{"file_id":"f1","file_path":"photos/test.jpg"}`)},
 			"getUpdates":         {Ok: true, Result: []byte(`[]`)},
 		},
+		methodCallCount: map[string]int{},
 	}
 }
 
@@ -60,6 +66,13 @@ func (m *mockCaller) Call(ctx context.Context, url string, data *ta.RequestData)
 	// Extract method name from URL (last path segment)
 	parts := strings.Split(url, "/")
 	method := parts[len(parts)-1]
+	if seq := m.methodErrSeq[method]; len(seq) > 0 {
+		idx := m.methodCallCount[method]
+		m.methodCallCount[method] = idx + 1
+		if idx < len(seq) && seq[idx] != nil {
+			return nil, seq[idx]
+		}
+	}
 	if resp, ok := m.responses[method]; ok {
 		return resp, nil
 	}
@@ -1250,5 +1263,93 @@ func TestTelegramChannel_SendStream_ErrorVisibility(t *testing.T) {
 	}
 	if strings.Contains(finalText, "agent return null") {
 		t.Fatalf("final message should not fallback to null, got %q", finalText)
+	}
+}
+
+func TestTelegramChannel_SendStream_FinalSendFailureKeepsIntermediateMessages(t *testing.T) {
+	ch, caller := newTestChannel(t, config.TelegramConfig{Streaming: true, Feedback: "debug"})
+	caller.methodErrSeq = map[string][]error{
+		"sendMessage": {nil, errors.New("final send failed"), errors.New("final send failed")},
+	}
+
+	events := make(chan api.StreamEvent, 10)
+	iter := 0
+	events <- api.StreamEvent{Type: api.EventIterationStart, Iteration: &iter}
+	events <- api.StreamEvent{Type: api.EventToolExecutionStart, ToolUseID: "t1", Name: "Read", Iteration: &iter}
+	events <- api.StreamEvent{Type: api.EventContentBlockDelta, Delta: &api.Delta{Type: "text_delta", Text: "partial result"}}
+	close(events)
+
+	err := ch.SendStream(context.Background(), "123", nil, events)
+	if err == nil || !strings.Contains(err.Error(), "final send failed") {
+		t.Fatalf("SendStream error = %v, want final send failure", err)
+	}
+
+	var sendCount, deleteCount int
+	for _, c := range caller.calls {
+		if strings.HasSuffix(c.URL, "/sendMessage") {
+			sendCount++
+		}
+		if strings.HasSuffix(c.URL, "/deleteMessage") {
+			deleteCount++
+		}
+	}
+	if sendCount < 3 {
+		t.Fatalf("expected intermediate + final send attempts, got %d", sendCount)
+	}
+	if deleteCount != 0 {
+		t.Fatalf("expected no deleteMessage when final send fails, got %d", deleteCount)
+	}
+}
+
+func TestTelegramChannel_SaveFile_SanitizesName(t *testing.T) {
+	ch, _ := newTestChannel(t, config.TelegramConfig{})
+	tmpDir := t.TempDir()
+	ch.SetWorkspace(tmpDir)
+
+	payload := []byte("hello")
+	downloadServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write(payload)
+	}))
+	defer downloadServer.Close()
+
+	serverURL, err := url.Parse(downloadServer.URL)
+	if err != nil {
+		t.Fatalf("parse server url: %v", err)
+	}
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	ch.httpClient = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		clonedReq := req.Clone(req.Context())
+		clonedReq.URL.Scheme = serverURL.Scheme
+		clonedReq.URL.Host = serverURL.Host
+		return transport.RoundTrip(clonedReq)
+	})}
+
+	savedPath, err := ch.saveFile("f1", "../nested/evil.txt")
+	if err != nil {
+		t.Fatalf("saveFile error: %v", err)
+	}
+	wantDir := filepath.Join(tmpDir, "uploads")
+	if filepath.Dir(savedPath) != wantDir {
+		t.Fatalf("saved dir = %q, want %q", filepath.Dir(savedPath), wantDir)
+	}
+	if strings.Contains(savedPath, "nested") {
+		t.Fatalf("saved path should be sanitized, got %q", savedPath)
+	}
+	data, err := os.ReadFile(savedPath)
+	if err != nil {
+		t.Fatalf("read saved file: %v", err)
+	}
+	if string(data) != string(payload) {
+		t.Fatalf("saved content = %q, want %q", string(data), string(payload))
+	}
+}
+
+func TestTelegramChannel_SendReaction_SkipsMissingMessageID(t *testing.T) {
+	ch, caller := newTestChannel(t, config.TelegramConfig{Feedback: "normal"})
+	ch.sendReaction(123, 0, "👍")
+	for _, c := range caller.calls {
+		if strings.HasSuffix(c.URL, "/setMessageReaction") {
+			t.Fatal("expected no setMessageReaction call for missing message id")
+		}
 	}
 }
