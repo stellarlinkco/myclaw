@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -21,6 +22,7 @@ import (
 	"github.com/cexll/agentsdk-go/pkg/api"
 	"github.com/cexll/agentsdk-go/pkg/model"
 	"github.com/mymmrac/telego"
+	"github.com/mymmrac/telego/telegoapi"
 	tu "github.com/mymmrac/telego/telegoutil"
 	"github.com/stellarlinkco/myclaw/internal/bus"
 	"github.com/stellarlinkco/myclaw/internal/channel/telegram"
@@ -53,6 +55,12 @@ type TelegramChannel struct {
 func telegramRetryAfter(err error) (time.Duration, bool) {
 	if err == nil {
 		return 0, false
+	}
+	var apiErr *telegoapi.Error
+	if errors.As(err, &apiErr) && apiErr.Parameters != nil && apiErr.ErrorCode == http.StatusTooManyRequests {
+		if apiErr.Parameters.RetryAfter > 0 {
+			return time.Duration(apiErr.Parameters.RetryAfter) * time.Second, true
+		}
 	}
 	const marker = "retry after "
 	text := err.Error()

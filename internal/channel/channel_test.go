@@ -1302,7 +1302,12 @@ func TestTelegramChannel_SendStream_FinalSendFailureKeepsIntermediateMessages(t 
 }
 
 func TestTelegramRetryAfter(t *testing.T) {
-	delay, ok := telegramRetryAfter(errors.New(`telego: editMessageText: api: 429 "Too Many Requests: retry after 717", migrate to chat ID: 0, retry after: 717`))
+	delay, ok := telegramRetryAfter(&ta.Error{ErrorCode: 429, Parameters: &ta.ResponseParameters{RetryAfter: 3}})
+	if !ok || delay != 3*time.Second {
+		t.Fatalf("api retry after = (%v, %v), want (%v, true)", delay, ok, 3*time.Second)
+	}
+
+	delay, ok = telegramRetryAfter(errors.New(`telego: editMessageText: api: 429 "Too Many Requests: retry after 717", migrate to chat ID: 0, retry after: 717`))
 	if !ok {
 		t.Fatal("expected retry after to be detected")
 	}
